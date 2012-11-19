@@ -410,7 +410,7 @@ terminate(_Reason, #state{free_connections=Free, busy_connections=Busy}) ->
       fun ({_, Pid}) ->
               gen_tcp:close(Pid)
       end,
-      queue:to_list(Busy)),
+      Busy),
     ok.
 
 spawn_client(#state{host=Host, port=Port, tcp_options=TCPOpts}) ->
