@@ -425,7 +425,7 @@ get_socket(FromPid, State) ->
         false ->
             {{ok, queue:get(Free)}, queue:drop(Free)};
         true ->
-            {spawn_client(State), Free}
+            {Free, spawn_client(State)}
     end,
     case Result of
         {ok, Pid} ->
@@ -433,9 +433,9 @@ get_socket(FromPid, State) ->
                 free_connections = NewFree,
                 busy_connections = [{FromPid, Pid} | Busy]
             },
-            {Pid, NewState};
+            {NewState, Pid};
         {error, Reason} ->
-            {{error, Reason}, State}
+            {State, {error, Reason}}
     end.
 
 %% @private
