@@ -68,7 +68,7 @@
 %% gen_server callbacks
 -export([
     init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-    code_change/3
+    code_change/3, get_state/0, get_state/1
 ]).
 
 %% @doc retrieve memcached stats
@@ -405,7 +405,11 @@ handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value}}, From, State) ->
                            )
                              end,
                              From, State),
-    {reply, Reply, NewState}.
+    {reply, Reply, NewState};
+
+handle_call(get_state, _From, State) ->
+    {reply, {ok, State}, State}.
+
 
 %% @private
 handle_cast(stop, State) ->
@@ -429,6 +433,15 @@ handle_info(_Info, State) -> {noreply, State}.
 
 %% @private
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+
+%% @private
+%% @doc Get the current state of the named mochiak pool.
+%% @spec get_state(atom()) -> {ok, term()}.
+get_state() ->
+    get_state(?SERVER).
+get_state(Module) ->
+    gen_server:call(Module, get_state).
 
 %% @private
 %% @doc Closes the socket
