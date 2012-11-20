@@ -39,7 +39,7 @@
 -version("Version: 0.3").
 
 -define(SERVER, ?MODULE).
--define(TIMEOUT, 5000).
+-define(TIMEOUT, 1000).
 -define(RANDOM_MAX, 65535).
 -define(DEFAULT_HOST, "localhost").
 -define(DEFAULT_PORT, 11211).
