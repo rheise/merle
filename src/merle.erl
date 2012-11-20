@@ -468,10 +468,14 @@ exec(Fun, FromPid, State) ->
 %% @private
 process_close(Pid, Reason, State) ->
     Busy = State#state.busy_connections,
-    Free = queue:to_list(State#state.free_connections),
+    Free = State#state.free_connections,
     NewState = State#state {
                  busy_connections = remove_from_busy(Pid, Busy),
-                 free_connections = queue:from_list(Free -- [Pid])
+                 free_connections = queue:filter(fun(Pid) ->
+                                                         false;
+                                                    (_) ->
+                                                         true
+                                                 end, Free)
                 },
     gen_tcp:close(Pid),
     NewState.
