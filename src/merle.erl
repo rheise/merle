@@ -330,11 +330,13 @@ handle_call({getskey, {Key}}, From, State) ->
     {reply, [Reply], NewState};
 
 handle_call({delete, {Key, Time}}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_generic_cmd(
-        Socket,
-        iolist_to_binary([<<"delete ">>, Key, <<" ">>, Time])
-    ),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_generic_cmd(
+                               Socket,
+                               iolist_to_binary([<<"delete ">>, Key, <<" ">>, Time])
+                              )
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({set, {Key, Flag, ExpTime, Value}}, From, State) ->
@@ -471,10 +473,8 @@ process_close(Pid, Reason, State) ->
     Free = State#state.free_connections,
     NewState = State#state {
                  busy_connections = remove_from_busy(Pid, Busy),
-                 free_connections = queue:filter(fun(Pid) ->
-                                                         false;
-                                                    (_) ->
-                                                         true
+                 free_connections = queue:filter(fun(P) ->
+                                                      P =/= Pid
                                                  end, Free)
                 },
     gen_tcp:close(Pid),
