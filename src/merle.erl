@@ -273,43 +273,60 @@ init([State, PoolSize]) ->
     {ok, NewState}.
 
 handle_call({stats}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"stats">>])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_generic_cmd(Socket, iolist_to_binary([<<"stats">>]))
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({stats, {Args}}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"stats ">>, Args])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_generic_cmd(Socket, iolist_to_binary([<<"stats ">>, Args]))
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({version}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"version">>])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_generic_cmd(Socket, iolist_to_binary([<<"version">>]))
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({verbosity, {Args}}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"verbosity ">>, Args])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_generic_cmd(Socket, iolist_to_binary([<<"verbosity ">>, Args]))
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({flushall}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"flush_all">>])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_generic_cmd(Socket, iolist_to_binary([<<"flush_all">>]))
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({flushall, {Delay}}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_generic_cmd(Socket, iolist_to_binary([<<"flush_all ">>, Delay])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_generic_cmd(Socket, iolist_to_binary([<<"flush_all ">>, Delay]))
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({getkey, {Key}}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_get_cmd(Socket, iolist_to_binary([<<"get ">>, Key])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_get_cmd(Socket, iolist_to_binary([<<"get ">>, Key]))
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({getskey, {Key}}, From, State) ->
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_gets_cmd(Socket, iolist_to_binary([<<"gets ">>, Key])),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_gets_cmd(Socket, iolist_to_binary([<<"gets ">>, Key]))
+                             end,
+                             From,
+                             State),
     {reply, [Reply], NewState};
 
 handle_call({delete, {Key, Time}}, From, State) ->
@@ -323,73 +340,88 @@ handle_call({delete, {Key, Time}}, From, State) ->
 handle_call({set, {Key, Flag, ExpTime, Value}}, From, State) ->
 	Bin = term_to_binary(Value),
 	Bytes = integer_to_list(size(Bin)),
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_storage_cmd(
-        Socket,
-        iolist_to_binary([
-            <<"set ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>, Bytes
-        ]),
-        Bin
-    ),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_storage_cmd(
+                               Socket,
+                               iolist_to_binary([
+                                                 <<"set ">>, Key,
+                                                 <<" ">>, Flag, <<" ">>,
+                                                 ExpTime, <<" ">>, Bytes
+                                                ]),
+                               Bin
+                              )
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({add, {Key, Flag, ExpTime, Value}}, From, State) ->
 	Bin = term_to_binary(Value),
 	Bytes = integer_to_list(size(Bin)),
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_storage_cmd(
-        Socket,
-        iolist_to_binary([
-            <<"add ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>, Bytes
-        ]),
-        Bin
-    ),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_storage_cmd(
+                               Socket,
+                               iolist_to_binary([
+                                                 <<"add ">>, Key, <<" ">>,
+                                                 Flag, <<" ">>, ExpTime, <<" ">>, Bytes
+                                                ]),
+                               Bin
+                              )
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({replace, {Key, Flag, ExpTime, Value}}, From, State) ->
 	Bin = term_to_binary(Value),
 	Bytes = integer_to_list(size(Bin)),
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_storage_cmd(
-        Socket,
-        iolist_to_binary([
-            <<"replace ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>,
-            Bytes
-        ]),
-    	Bin
-    ),
+    {NewState, Reply} = exec(fun (Socket) ->
+                             send_storage_cmd(
+                               Socket,
+                               iolist_to_binary([
+                                                 <<"replace ">>, Key, <<" ">>,
+                                                 Flag, <<" ">>, ExpTime, <<" ">>,
+                                                 Bytes
+                                                ]),
+                               Bin
+                              )
+                             end,
+                             From, State),
     {reply, Reply, NewState};
 
 handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value}}, From, State) ->
 	Bin = term_to_binary(Value),
 	Bytes = integer_to_list(size(Bin)),
-    {NewState, Socket} = get_socket(From, State),
-    Reply = send_storage_cmd(
-        Socket,
-        iolist_to_binary([
-            <<"cas ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>, Bytes,
-            <<" ">>, CasUniq
-        ]),
-        Bin
-    ),
+    {NewState, Reply} = exec(fun (Socket) ->
+                          send_storage_cmd(
+                            Socket,
+                            iolist_to_binary([
+                                              <<"cas ">>, Key, <<" ">>,
+                                              Flag, <<" ">>,
+                                              ExpTime, <<" ">>, Bytes,
+                                              <<" ">>, CasUniq
+                                             ]),
+                            Bin
+                           )
+                             end,
+                             From, State),
     {reply, Reply, NewState}.
 
 %% @private
 handle_cast(stop, State) ->
    {stop, normal, State};
 
-handle_cast(_Msg, State) -> {noreply, State}.
+handle_cast({free, Socket}, State) ->
+    {noreply, process_freed(Socket, State)};
+
+handle_cast({close, Pid, Reason}, State) ->
+    {noreply, process_close(Pid, Reason, State)};
+
+handle_cast(_Msg, State) ->
+    {noreply, State}.
 
 %% @private
 %% handling sockets faliure
-handle_info({'EXIT', Pid, Reason}, State=#state{free_connections=Free, busy_connections=Busy}) ->
-    error_logger:info_report("merle socket ~p failed with reason ~p...~n", [Pid, Reason]),
-    FreeL = queue:to_list(Free),
-    NewState = State#state {
-        busy_connections = Busy -- [Pid],
-        free_connections = queue:from_list(FreeL -- [Pid])
-    },
-    {noreply, NewState};
+handle_info({'EXIT', Pid, Reason}, State) ->
+    {noreply, process_close(Pid, Reason, State)};
 
 handle_info(_Info, State) -> {noreply, State}.
 
@@ -416,6 +448,51 @@ terminate(_Reason, #state{free_connections=Free, busy_connections=Busy}) ->
 spawn_client(#state{host=Host, port=Port, tcp_options=TCPOpts}) ->
     gen_tcp:connect(Host, Port, TCPOpts).
 
+
+%% @private
+exec(Fun, FromPid, State) ->
+    {CurrentState, Socket} = get_socket(FromPid, State),
+    Reply = try Fun(Socket)
+            catch C:E ->
+                    erlang:raise(C, E, erlang:get_stacktrace())
+            after
+                gen_server2:cast(?SERVER, {free, Socket})
+            end,
+    NewState = case Reply of
+        timeout -> process_close(Socket, timeout, CurrentState);
+        connection_closed -> process_close(Socket, connection_closed, CurrentState);
+        _ -> CurrentState
+    end,
+    {NewState, Reply}.
+
+%% @private
+process_close(Pid, Reason, State) ->
+    Busy = State#state.busy_connections,
+    Free = queue:to_list(State#state.free_connections),
+    NewState = State#state {
+                 busy_connections = remove_from_busy(Pid, Busy),
+                 free_connections = queue:from_list(Free -- [Pid])
+                },
+    gen_tcp:close(Pid),
+    NewState.
+
+%% @private
+process_freed(Pid, State) ->
+    Free = State#state.free_connections,
+    Busy = State#state.busy_connections,
+    State#state{
+        free_connections = queue:in(Pid, Free),
+        busy_connections = remove_from_busy(Pid, Busy)
+    }.
+
+
+remove_from_busy(Pid, Busy) ->
+    case lists:keyfind(Pid, 2, Busy) of
+        {_ParentPid, Pid} -> lists:keydelete(Pid, 2, Busy);
+        _ -> Busy
+    end.
+
+
 %% @private
 %%
 get_socket(FromPid, State) ->
@@ -425,7 +502,7 @@ get_socket(FromPid, State) ->
         false ->
             {{ok, queue:get(Free)}, queue:drop(Free)};
         true ->
-            {Free, spawn_client(State)}
+            {spawn_client(State), Free}
     end,
     case Result of
         {ok, Pid} ->
