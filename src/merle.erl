@@ -414,16 +414,16 @@ handle_cast(stop, State) ->
 handle_cast({free, Socket}, State) ->
     {noreply, process_freed(Socket, State)};
 
-handle_cast({close, Pid, Reason}, State) ->
-    {noreply, process_close(Pid, Reason, State)};
+handle_cast({close, Pid, _Reason}, State) ->
+    {noreply, process_close(Pid, State)};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 %% @private
 %% handling sockets faliure
-handle_info({'EXIT', Pid, Reason}, State) ->
-    {noreply, process_close(Pid, Reason, State)};
+handle_info({'EXIT', Pid, _Reason}, State) ->
+    {noreply, process_close(Pid, State)};
 
 handle_info(_Info, State) -> {noreply, State}.
 
@@ -461,14 +461,14 @@ exec(Fun, FromPid, State) ->
                 gen_server2:cast(?SERVER, {free, Socket})
             end,
     NewState = case Reply of
-        timeout -> process_close(Socket, timeout, CurrentState);
-        connection_closed -> process_close(Socket, connection_closed, CurrentState);
+        timeout -> process_close(Socket, CurrentState);
+        connection_closed -> process_close(Socket, CurrentState);
         _ -> CurrentState
     end,
     {NewState, Reply}.
 
 %% @private
-process_close(Pid, Reason, State) ->
+process_close(Pid, State) ->
     Busy = State#state.busy_connections,
     Free = State#state.free_connections,
     NewState = State#state {
