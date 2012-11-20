@@ -460,19 +460,19 @@ exec(Fun, FromPid, State) ->
             after
                 gen_server2:cast(?SERVER, {free, Socket})
             end,
-    NewState = case Reply of
-        timeout -> process_close(Socket, CurrentState);
-        connection_closed -> process_close(Socket, CurrentState);
-        _ -> CurrentState
+    case Reply of
+        timeout -> gen_server2:cast(?SERVER, {close, Socket, timeout});
+        connection_closed -> gen_server2:cast(?SERVER, {close, Socket, timeout});
+        _ -> ok
     end,
-    {NewState, Reply}.
+    {CurrentState, Reply}.
 
 %% @private
 process_close(Pid, State) ->
     Busy = State#state.busy_connections,
     Free = State#state.free_connections,
     NewState = State#state {
-                 busy_connections = remove_from_busy(Pid, Busy),
+                 busy_connections = lists:keydelete(Pid, 2, Busy),
                  free_connections = queue:filter(fun(P) ->
                                                       P =/= Pid
                                                  end, Free)
@@ -486,15 +486,9 @@ process_freed(Pid, State) ->
     Busy = State#state.busy_connections,
     State#state{
         free_connections = queue:in(Pid, Free),
-        busy_connections = remove_from_busy(Pid, Busy)
+        busy_connections = lists:keydelete(Pid, 2, Busy)
     }.
 
-
-remove_from_busy(Pid, Busy) ->
-    case lists:keyfind(Pid, 2, Busy) of
-        {_ParentPid, Pid} -> lists:keydelete(Pid, 2, Busy);
-        _ -> Busy
-    end.
 
 
 %% @private
