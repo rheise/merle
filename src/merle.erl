@@ -62,7 +62,7 @@
 -export([
     stats/0, stats/1, version/0, getkey/1, delete/2, set/4, add/4, replace/2,
     replace/4, cas/5, set/2, flushall/0, flushall/1, verbosity/1, add/2,
-    cas/3, getskey/1, connect/0, connect/2, delete/1, disconnect/0
+    cas/3, getskey/1, connect/0, connect/2, connect/3, delete/1, disconnect/0
 ]).
 
 %% gen_server callbacks
@@ -245,7 +245,11 @@ connect() ->
 
 %% @doc connect to memcached
 connect(Host, Port) ->
-	start_link(Host, Port, []).
+	connect(Host, Port, []).
+
+%% @doc connect with opts to memcached
+connect(Host, Port, Opts) ->
+	start_link(Host, Port, Opts).
 
 %% @doc disconnect from memcached
 disconnect() ->
