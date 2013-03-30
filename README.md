@@ -2,15 +2,15 @@
 
 ## Authors ##
 
-- Original Author : Joe Williams <joe@joetify.com> (http://github.com/joewilliams/merle/)
-- Contributors : Nick Gerakines <nick@gerakines.net>, Christopher Zorn <tofu@thetofu.com>, Neil Chintomby <nchintomby@gmail.com>
+* Original Author : Joe Williams <joe@joetify.com> (http://github.com/joewilliams/merle/)
+* Contributors : Nick Gerakines <nick@gerakines.net>, Christopher Zorn <tofu@thetofu.com>, Neil Chintomby <nchintomby@gmail.com>
 
 ## Info ##
 
-* merle uses LShift's gen_server2 module/behavior for faster message queues.
-http://hg.rabbitmq.com/rabbitmq-server/file/b95f2fd4e3f6/src/gen_server2.erl
+* merle uses LShift's gen_server2 module/behavior for faster message queues (http://hg.rabbitmq.com/rabbitmq-server/file/b95f2fd4e3f6/src/gen_server2.erl)
 
-This code is available as Open Source Software under the MIT license.
+## License ##
+* This code is available as Open Source Software under the MIT license.
 
 
 ## Features ##
@@ -25,10 +25,10 @@ This code is available as Open Source Software under the MIT license.
 
 ## Other Merle Based Projects ##
 
-- http://github.com/cstar/merle
-- http://github.com/issuu/merle
-- http://github.com/0lvin/merle
-- http://github.com/ppolv/merle
+* http://github.com/cstar/merle
+* http://github.com/issuu/merle
+* http://github.com/0lvin/merle
+* http://github.com/ppolv/merle
 
 ## Usage ##
 
