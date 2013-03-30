@@ -758,6 +758,8 @@ decode(_, Value) ->
 
 %% @private
 %% @doc encode the term or list value to binary
+encode(_, Value) when is_binary(Value) ->
+    Value;
 encode(true, Value) ->
     term_to_binary(Value);
 encode(_, Value) ->
