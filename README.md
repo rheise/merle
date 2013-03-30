@@ -7,7 +7,7 @@
 
 ## Info ##
 
-merle uses LShift's gen_server2 module/behavior for faster message queues.
+* merle uses LShift's gen_server2 module/behavior for faster message queues.
 http://hg.rabbitmq.com/rabbitmq-server/file/b95f2fd4e3f6/src/gen_server2.erl
 
 This code is available as Open Source Software under the MIT license.
