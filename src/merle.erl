@@ -54,6 +54,7 @@
     busy_connections = [],
     host,
     port,
+    request_timeout,
     tcp_options = ?TCP_OPTS
 }).
 
@@ -62,7 +63,7 @@
 -export([
     stats/0, stats/1, version/0, getkey/1, delete/2, set/4, add/4, replace/2,
     replace/4, cas/5, set/2, flushall/0, flushall/1, verbosity/1, add/2,
-    cas/3, getskey/1, connect/0, connect/2, connect/3, delete/1, disconnect/0
+    cas/3, getskey/1, connect/0, connect/2, connect/3, connect/4, delete/1, disconnect/0
 ]).
 
 % gen_server API -- non-term apis
@@ -77,7 +78,7 @@
 
 %% gen_server callbacks
 -export([
-    init/1, start_link/2, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+    init/1, start_link/2, start_link/3, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
     code_change/3, get_state/0, get_state/1
 ]).
 
@@ -362,26 +363,36 @@ connect() ->
 
 %% @doc connect to memcached
 connect(Host, Port) ->
-    connect(Host, Port, []).
+    connect(Host, Port, ?TIMEOUT, []).
+
+%% @doc connect to memcached
+connect(Host, Port, Opts) when is_list(Opts)->
+    connect(Host, Port, ?TIMEOUT, Opts);
+connect(Host, Port, RequestTimeout) ->
+    connect(Host, Port, RequestTimeout, []).
 
 %% @doc connect with opts to memcached
-connect(Host, Port, Opts) ->
-    start_link(Host, Port, Opts).
+connect(Host, Port, RequestTimeout, Opts) ->
+    start_link(Host, Port, RequestTimeout, Opts).
 
 %% @doc disconnect from memcached
 disconnect() ->
     gen_server2:cast(?SERVER, stop).
 
 start_link(Host, Port) ->
-    start_link(Host, Port, []).
+    start_link(Host, Port, ?TIMEOUT, []).
+
+start_link(Host, Port, RequestTimeout) ->
+    start_link(Host, Port, RequestTimeout, []).
 
 %% @private
-start_link(Host, Port, Options) ->
+start_link(Host, Port, RequestTimeout, Options) ->
     PoolSize = proplists:get_value(connections_pool_size,
                                    Options, ?DEFAULT_POOL_SIZE),
     State = #state {
       host = Host,
-      port = Port
+      port = Port,
+      request_timeout = RequestTimeout
      },
     gen_server2:start_link({local, ?SERVER}, ?MODULE, [State, PoolSize], []).
 
@@ -398,56 +409,56 @@ init([State, PoolSize]) ->
 
 handle_call({stats}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_generic_cmd(Socket, iolist_to_binary([<<"stats">>]))
+                             send_generic_cmd(State, Socket, iolist_to_binary([<<"stats">>]))
                              end,
                              From, State),
     {reply, Reply, NewState};
 
 handle_call({stats, {Args}}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_generic_cmd(Socket, iolist_to_binary([<<"stats ">>, Args]))
+                             send_generic_cmd(State, Socket, iolist_to_binary([<<"stats ">>, Args]))
                              end,
                              From, State),
     {reply, Reply, NewState};
 
 handle_call({version}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_generic_cmd(Socket, iolist_to_binary([<<"version">>]))
+                             send_generic_cmd(State, Socket, iolist_to_binary([<<"version">>]))
                              end,
                              From, State),
     {reply, Reply, NewState};
 
 handle_call({verbosity, {Args}}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_generic_cmd(Socket, iolist_to_binary([<<"verbosity ">>, Args]))
+                             send_generic_cmd(State, Socket, iolist_to_binary([<<"verbosity ">>, Args]))
                              end,
                              From, State),
     {reply, Reply, NewState};
 
 handle_call({flushall}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_generic_cmd(Socket, iolist_to_binary([<<"flush_all">>]))
+                             send_generic_cmd(State, Socket, iolist_to_binary([<<"flush_all">>]))
                              end,
                              From, State),
     {reply, Reply, NewState};
 
 handle_call({flushall, {Delay}}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_generic_cmd(Socket, iolist_to_binary([<<"flush_all ">>, Delay]))
+                             send_generic_cmd(State, Socket, iolist_to_binary([<<"flush_all ">>, Delay]))
                              end,
                              From, State),
     {reply, Reply, NewState};
 
 handle_call({getkey, {Key}, IsTerm}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_get_cmd(Socket, iolist_to_binary([<<"get ">>, Key]), IsTerm)
+                             send_get_cmd(State, Socket, iolist_to_binary([<<"get ">>, Key]), IsTerm)
                              end,
                              From, State),
     {reply, Reply, NewState};
 
 handle_call({getskey, {Key}, IsTerm}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_gets_cmd(Socket, iolist_to_binary([<<"gets ">>, Key]), IsTerm)
+                             send_gets_cmd(State, Socket, iolist_to_binary([<<"gets ">>, Key]), IsTerm)
                              end,
                              From,
                              State),
@@ -455,10 +466,7 @@ handle_call({getskey, {Key}, IsTerm}, From, State) ->
 
 handle_call({delete, {Key, Time}}, From, State) ->
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_generic_cmd(
-                               Socket,
-                               iolist_to_binary([<<"delete ">>, Key, <<" ">>, Time])
-                              )
+                             send_generic_cmd(State, Socket, iolist_to_binary([<<"delete ">>, Key, <<" ">>, Time]))
                              end,
                              From, State),
     {reply, Reply, NewState};
@@ -467,8 +475,7 @@ handle_call({set, {Key, Flag, ExpTime, Value, IsTerm}}, From, State) ->
     Bin = encode(IsTerm, Value),
     Bytes = integer_to_list(size(Bin)),
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_storage_cmd(
-                               Socket,
+                             send_storage_cmd(State, Socket,
                                iolist_to_binary([
                                                  <<"set ">>, Key,
                                                  <<" ">>, Flag, <<" ">>,
@@ -484,8 +491,7 @@ handle_call({add, {Key, Flag, ExpTime, Value, IsTerm}}, From, State) ->
     Bin = encode(IsTerm, Value),
     Bytes = integer_to_list(size(Bin)),
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_storage_cmd(
-                               Socket,
+                             send_storage_cmd(State, Socket,
                                iolist_to_binary([
                                                  <<"add ">>, Key, <<" ">>,
                                                  Flag, <<" ">>, ExpTime, <<" ">>, Bytes
@@ -500,8 +506,7 @@ handle_call({replace, {Key, Flag, ExpTime, Value, IsTerm}}, From, State) ->
     Bin = encode(IsTerm, Value),
     Bytes = integer_to_list(size(Bin)),
     {NewState, Reply} = exec(fun (Socket) ->
-                             send_storage_cmd(
-                               Socket,
+                             send_storage_cmd(State, Socket,
                                iolist_to_binary([
                                                  <<"replace ">>, Key, <<" ">>,
                                                  Flag, <<" ">>, ExpTime, <<" ">>,
@@ -517,8 +522,7 @@ handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value, IsTerm}}, From, State) ->
     Bin = encode(IsTerm, Value),
     Bytes = integer_to_list(size(Bin)),
     {NewState, Reply} = exec(fun (Socket) ->
-                          send_storage_cmd(
-                            Socket,
+                          send_storage_cmd(State, Socket,
                             iolist_to_binary([
                                               <<"cas ">>, Key, <<" ">>,
                                               Flag, <<" ">>,
@@ -652,51 +656,53 @@ get_socket(FromPid, State) ->
 
 %% @private
 %% @doc send_generic_cmd/2 function for simple informational and deletion commands
-send_generic_cmd(Socket, Cmd) ->
+send_generic_cmd(State, Socket, Cmd) ->
     gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
-    Reply = recv_simple_reply(),
+    Reply = recv_simple_reply(State),
     Reply.
 
 %% @private
 %% @doc send_storage_cmd/3 funtion for storage commands
-send_storage_cmd(Socket, Cmd, Value) ->
+send_storage_cmd(State, Socket, Cmd, Value) ->
     gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
     gen_tcp:send(Socket, <<Value/binary, "\r\n">>),
-    Reply = recv_simple_reply(),
+    Reply = recv_simple_reply(State),
     Reply.
 
 %% @private
 %% @doc send_get_cmd/2 function for retreival commands
-send_get_cmd(Socket, Cmd, IsTerm) ->
+send_get_cmd(State, Socket, Cmd, IsTerm) ->
     gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
-    case recv_complex_get_reply(Socket) of
+    case recv_complex_get_reply(State, Socket) of
         [Reply] -> [decode(IsTerm, Reply)];
         Other -> Other
     end.
 
 %% @private
 %% @doc send_gets_cmd/2 function for cas retreival commands
-send_gets_cmd(Socket, Cmd, IsTerm) ->
+send_gets_cmd(State, Socket, Cmd, IsTerm) ->
     gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
-    case recv_complex_gets_reply(Socket) of
+    case recv_complex_gets_reply(State, Socket) of
         [CasUniq, Reply] -> [CasUniq, decode(IsTerm, Reply)];
         Other -> Other
     end.
 
 %% @private
 %% @doc receive function for simple responses (not containing VALUEs)
-recv_simple_reply() ->
+recv_simple_reply(State) ->
+    Timeout = State#state.request_timeout,
     receive
         {tcp,_,Data} ->
             string:tokens(binary_to_list(Data), "\r\n");
         {error, closed} ->
             connection_closed
-    after ?TIMEOUT -> timeout
+    after Timeout -> timeout
     end.
 
 %% @private
 %% @doc receive function for respones containing VALUEs
-recv_complex_get_reply(Socket) ->
+recv_complex_get_reply(State, Socket) ->
+    Timeout = State#state.request_timeout,
     receive
         %% For receiving get responses where the key does not exist
         {tcp, Socket, <<"END\r\n">>} -> ["END"];
@@ -706,16 +712,17 @@ recv_complex_get_reply(Socket) ->
             Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
             {ok,[_,_,_,Bytes], ListBin} = Parse,
             Bin = list_to_binary(ListBin),
-            Reply = get_data(Socket, Bin, Bytes, length(ListBin)),
+            Reply = get_data(State, Socket, Bin, Bytes, length(ListBin)),
             [Reply];
         {error, closed} ->
             connection_closed
-    after ?TIMEOUT -> timeout
+    after Timeout -> timeout
     end.
 
 %% @private
 %% @doc receive function for cas responses containing VALUEs
-recv_complex_gets_reply(Socket) ->
+recv_complex_gets_reply(State, Socket) ->
+    Timeout = State#state.request_timeout,
     receive
         %% For receiving get responses where the key does not exist
         {tcp, Socket, <<"END\r\n">>} -> ["END"];
@@ -725,25 +732,26 @@ recv_complex_gets_reply(Socket) ->
             Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
             {ok,[_,_,_,Bytes,CasUniq], ListBin} = Parse,
             Bin = list_to_binary(ListBin),
-            Reply = get_data(Socket, Bin, Bytes, length(ListBin)),
+            Reply = get_data(State, Socket, Bin, Bytes, length(ListBin)),
             [CasUniq, Reply];
         {error, closed} ->
             connection_closed
-    after ?TIMEOUT -> timeout
+    after Timeout -> timeout
     end.
 
 %% @private
 %% @doc recieve loop to get all data
-get_data(Socket, Bin, Bytes, Len) when Len < Bytes + 7->
+get_data(State, Socket, Bin, Bytes, Len) when Len < Bytes + 7->
+    Timeout = State#state.request_timeout,
     receive
         {tcp, Socket, Data} ->
             Combined = <<Bin/binary, Data/binary>>,
-            get_data(Socket, Combined, Bytes, size(Combined));
+            get_data(State, Socket, Combined, Bytes, size(Combined));
         {error, closed} ->
             connection_closed
-        after ?TIMEOUT -> timeout
+    after Timeout -> timeout
     end;
-get_data(_, Data, Bytes, _) ->
+get_data(_, _, Data, Bytes, _) ->
     <<Bin:Bytes/binary, "\r\nEND\r\n">> = Data,
     Bin.
 
