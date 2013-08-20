@@ -177,11 +177,7 @@ set(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 set(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     set(Key, Flag, integer_to_list(ExpTime), Value);
 set(Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(?SERVER, {set, {Key, Flag, ExpTime, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+    set_call({set, {Key, Flag, ExpTime, Value}}).
 
 %% @doc Store a key/value pair if it doesn't already exist.
 add(Key, Value) ->
@@ -195,16 +191,12 @@ add(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 add(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     add(Key, Flag, integer_to_list(ExpTime), Value);
 add(Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(?SERVER, {add, {Key, Flag, ExpTime, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+    set_call({add, {Key, Flag, ExpTime, Value}}).
 
 %% @doc Replace an existing key/value pair.
 replace(Key, Value) ->
-	Flag = random:uniform(?RANDOM_MAX),
-	replace(Key, integer_to_list(Flag), "0", Value).
+    Flag = random:uniform(?RANDOM_MAX),
+    replace(Key, integer_to_list(Flag), "0", Value).
 
 replace(Key, Flag, ExpTime, Value) when is_atom(Key) ->
 	replace(atom_to_list(Key), Flag, ExpTime, Value);
@@ -213,11 +205,7 @@ replace(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 replace(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     replace(Key, Flag, integer_to_list(ExpTime), Value);
 replace(Key, Flag, ExpTime, Value) ->
-	case gen_server2:call(?SERVER, {replace, {Key, Flag, ExpTime, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+    set_call({replace, {Key, Flag, ExpTime, Value}}).
 
 %% @doc Store a key/value pair if possible.
 cas(Key, CasUniq, Value) ->
@@ -233,11 +221,15 @@ cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(ExpTime) ->
 cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(CasUniq) ->
     cas(Key, Flag, ExpTime, integer_to_list(CasUniq), Value);
 cas(Key, Flag, ExpTime, CasUniq, Value) ->
-	case gen_server2:call(?SERVER, {cas, {Key, Flag, ExpTime, CasUniq, Value}}) of
-	    ["STORED"] -> ok;
-	    ["NOT_STORED"] -> not_stored;
-	    [X] -> X
-	end.
+    set_call({cas, {Key, Flag, ExpTime, CasUniq, Value}}).
+
+set_call(Msg) ->
+    case gen_server2:call(?SERVER, Msg) of
+        ["STORED"] -> ok;
+        ["NOT_STORED"] -> not_stored;
+        [X] -> X;
+        Error -> {error, Error}
+    end.
 
 %% @doc connect to memcached with defaults
 connect() ->
@@ -469,14 +461,14 @@ exec(Fun, FromPid, State) ->
     {CurrentState, Socket} = get_socket(FromPid, State),
     Reply = try Fun(Socket)
             catch C:E ->
+                    %% An error should close the connection
+                    gen_server2:cast(?SERVER, {close, Socket, error}),
                     erlang:raise(C, E, erlang:get_stacktrace())
-            after
-                gen_server2:cast(?SERVER, {free, Socket})
             end,
     case Reply of
         timeout -> gen_server2:cast(?SERVER, {close, Socket, timeout});
-        connection_closed -> gen_server2:cast(?SERVER, {close, Socket, timeout});
-        _ -> ok
+        connection_closed -> gen_server2:cast(?SERVER, {close, Socket, connection_closed});
+        _ -> gen_server2:cast(?SERVER, {free, Socket})
     end,
     {CurrentState, Reply}.
 
