@@ -208,7 +208,7 @@ set(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 set(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     set(Key, Flag, integer_to_list(ExpTime), Value);
 set(Key, Flag, ExpTime, Value) ->
-    set_call({set, {Key, Flag, ExpTime, Value, true}}).
+    gen_server2:cast(?SERVER, {set, {Key, Flag, ExpTime, Value, self()}}).
 
 
 %% @doc set that plays nicely with other languages (ex. Python).
@@ -446,19 +446,7 @@ handle_call({delete, {Key, Time}}, From, State) ->
     {reply, Reply, NewState};
 
 handle_call({set, {Key, Flag, ExpTime, Value, IsTerm}}, From, State) ->
-    Bin = encode(IsTerm, Value),
-    Bytes = integer_to_list(size(Bin)),
-    {NewState, Reply} = exec(fun (Socket) ->
-                             send_storage_cmd(State, Socket,
-                               iolist_to_binary([
-                                                 <<"set ">>, Key,
-                                                 <<" ">>, Flag, <<" ">>,
-                                                 ExpTime, <<" ">>, Bytes
-                                                ]),
-                               Bin
-                              )
-                             end,
-                             From, State),
+    {NewState, Reply} = do_set(Key, Flag, ExpTime, Value, IsTerm, From, State),
     {reply, Reply, NewState};
 
 handle_call({add, {Key, Flag, ExpTime, Value, IsTerm}}, From, State) ->
@@ -491,7 +479,6 @@ handle_call({replace, {Key, Flag, ExpTime, Value, IsTerm}}, From, State) ->
                              end,
                              From, State),
     {reply, Reply, NewState};
-
 handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value, IsTerm}}, From, State) ->
     Bin = encode(IsTerm, Value),
     Bytes = integer_to_list(size(Bin)),
@@ -508,7 +495,6 @@ handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value, IsTerm}}, From, State) ->
                              end,
                              From, State),
     {reply, Reply, NewState};
-
 handle_call(get_state, _From, State) ->
     {reply, {ok, State}, State}.
 
@@ -523,6 +509,10 @@ handle_cast({free, Socket}, State) ->
 handle_cast({close, Pid, _Reason}, State) ->
     {noreply, process_close(Pid, State)};
 
+handle_cast({set, {Key, Flag, ExpTime, Value, From}}, State) ->
+    {NewState, _Reply} = do_set(Key, Flag, ExpTime, Value, true, From, State),
+    {noreply, NewState};
+
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -536,6 +526,21 @@ handle_info(_Info, State) -> {noreply, State}.
 %% @private
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
+
+do_set(Key, Flag, ExpTime, Value, IsTerm, From, State) ->
+    Bin = encode(IsTerm, Value),
+    Bytes = integer_to_list(size(Bin)),
+    exec(fun (Socket) ->
+                 send_storage_cmd(State, Socket,
+                                  iolist_to_binary([
+                                                 <<"set ">>, Key,
+                                                 <<" ">>, Flag, <<" ">>,
+                                                 ExpTime, <<" ">>, Bytes
+                                                ]),
+                                  Bin
+                                 )
+         end,
+         From, State).
 
 %% @private
 %% @doc Get the current state of the named mochiak pool.
