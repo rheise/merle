@@ -16,12 +16,15 @@
 %% The original code could reorder messages when communicating with a
 %% process on a remote node that was not currently connected.
 %%
-%% 4) The callback module can optionally implement prioritise_call/3,
-%% prioritise_cast/2 and prioritise_info/2.  These functions take
-%% Message, From and State or just Message and State and return a
-%% single integer representing the priority attached to the message.
-%% Messages with higher priorities are processed before requests with
-%% lower priorities. The default priority is 0.
+%% 4) The callback module can optionally implement prioritise_call/4,
+%% prioritise_cast/3 and prioritise_info/3.  These functions take
+%% Message, From, Length and State or just Message, Length and State
+%% (where Length is the current number of messages waiting to be
+%% processed) and return a single integer representing the priority
+%% attached to the message, or 'drop' to ignore it (for
+%% prioritise_cast/3 and prioritise_info/3 only).  Messages with
+%% higher priorities are processed before requests with lower
+%% priorities. The default priority is 0.
 %%
 %% 5) The callback module can optionally implement
 %% handle_pre_hibernate/1 and handle_post_hibernate/1. These will be
@@ -31,13 +34,13 @@
 %% handle_pre_hibernate/1 then the default action is to hibernate.
 %%
 %% 6) init can return a 4th arg, {backoff, InitialTimeout,
-%% MinimumTimeout, DesiredHibernatePeriod} (all in
-%% milliseconds). Then, on all callbacks which can return a timeout
-%% (including init), timeout can be 'hibernate'. When this is the
-%% case, the current timeout value will be used (initially, the
-%% InitialTimeout supplied from init). After this timeout has
-%% occurred, hibernation will occur as normal. Upon awaking, a new
-%% current timeout value will be calculated.
+%% MinimumTimeout, DesiredHibernatePeriod} (all in milliseconds,
+%% 'infinity' does not make sense here). Then, on all callbacks which
+%% can return a timeout (including init), timeout can be
+%% 'hibernate'. When this is the case, the current timeout value will
+%% be used (initially, the InitialTimeout supplied from init). After
+%% this timeout has occurred, hibernation will occur as normal. Upon
+%% awaking, a new current timeout value will be calculated.
 %%
 %% The purpose is that the gen_server2 takes care of adjusting the
 %% current timeout value such that the process will increase the
@@ -67,8 +70,19 @@
 %% module. Note there is no form also encompassing a reply, thus if
 %% you wish to reply in handle_call/3 and change the callback module,
 %% you need to use gen_server2:reply/2 to issue the reply manually.
+%%
+%% 8) The callback module can optionally implement
+%% format_message_queue/2 which is the equivalent of format_status/2
+%% but where the second argument is specifically the priority_queue
+%% which contains the prioritised message_queue.
+%%
+%% 9) The function with_state/2 can be used to debug a process with
+%% heavyweight state (without needing to copy the entire state out of
+%% process as sys:get_status/1 would). Pass through a function which
+%% can be invoked on the state, get back the result. The state is not
+%% modified.
 
-%% All modifications are (C) 2009-2011 VMware, Inc.
+%% All modifications are (C) 2009-2013 GoPivotal, Inc.
 
 %% ``The contents of this file are subject to the Erlang Public License,
 %% Version 1.1, (the "License"); you may not use this file except in
@@ -130,9 +144,10 @@
 %%%              Reason = normal | shutdown | Term, terminate(State) is called
 %%%
 %%%   terminate(Reason, State) Let the user module clean up
+%%%              Reason = normal | shutdown | {shutdown, Term} | Term
 %%%        always called when server terminates
 %%%
-%%%    ==> ok
+%%%    ==> ok | Term
 %%%
 %%%   handle_pre_hibernate(State)
 %%%
@@ -175,9 +190,8 @@
          cast/2, reply/2,
          abcast/2, abcast/3,
          multi_call/2, multi_call/3, multi_call/4,
+         with_state/2,
          enter_loop/3, enter_loop/4, enter_loop/5, enter_loop/6, wake_hib/1]).
-
--export([behaviour_info/1]).
 
 %% System exports
 -export([system_continue/3,
@@ -192,14 +206,13 @@
 
 %% State record
 -record(gs2_state, {parent, name, state, mod, time,
-                    timeout_state, queue, debug, prioritise_call,
-                    prioritise_cast, prioritise_info}).
+                    timeout_state, queue, debug, prioritisers}).
+
+-ifdef(use_specs).
 
 %%%=========================================================================
 %%%  Specs. These exist only to shut up dialyzer's warnings
 %%%=========================================================================
-
--ifdef(use_specs).
 
 -type(gs2_state() :: #gs2_state{}).
 
@@ -209,17 +222,57 @@
 -spec(pre_hibernate/1 :: (gs2_state()) -> no_return()).
 -spec(system_terminate/4 :: (_, _, _, gs2_state()) -> no_return()).
 
--endif.
+-type(millis() :: non_neg_integer()).
 
 %%%=========================================================================
 %%%  API
 %%%=========================================================================
+
+-callback init(Args :: term()) ->
+    {ok, State :: term()} |
+    {ok, State :: term(), timeout() | hibernate} |
+    {ok, State :: term(), timeout() | hibernate,
+     {backoff, millis(), millis(), millis()}} |
+    ignore |
+    {stop, Reason :: term()}.
+-callback handle_call(Request :: term(), From :: {pid(), Tag :: term()},
+                      State :: term()) ->
+    {reply, Reply :: term(), NewState :: term()} |
+    {reply, Reply :: term(), NewState :: term(), timeout() | hibernate} |
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), timeout() | hibernate} |
+    {stop, Reason :: term(),
+     Reply :: term(), NewState :: term()}.
+-callback handle_cast(Request :: term(), State :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), timeout() | hibernate} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_info(Info :: term(), State :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), timeout() | hibernate} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
+                    State :: term()) ->
+    ok | term().
+-callback code_change(OldVsn :: (term() | {down, term()}), State :: term(),
+                      Extra :: term()) ->
+    {ok, NewState :: term()} | {error, Reason :: term()}.
+
+%% It's not possible to define "optional" -callbacks, so putting specs
+%% for handle_pre_hibernate/1 and handle_post_hibernate/1 will result
+%% in warnings (the same applied for the behaviour_info before).
+
+-else.
+
+-export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
     [{init,1},{handle_call,3},{handle_cast,2},{handle_info,2},
      {terminate,2},{code_change,3}];
 behaviour_info(_Other) ->
     undefined.
+
+-endif.
 
 %%%  -----------------------------------------------------------------
 %%% Starts a generic server.
@@ -336,6 +389,16 @@ multi_call(Nodes, Name, Req, Timeout)
   when is_list(Nodes), is_atom(Name), is_integer(Timeout), Timeout >= 0 ->
     do_multi_call(Nodes, Name, Req, Timeout).
 
+%% -----------------------------------------------------------------
+%% Apply a function to a generic server's state.
+%% -----------------------------------------------------------------
+with_state(Name, Fun) ->
+    case catch gen:call(Name, '$with_state', Fun, infinity) of
+        {ok,Res} ->
+            Res;
+        {'EXIT',Reason} ->
+            exit({Reason, {?MODULE, with_state, [Name, Fun]}})
+    end.
 
 %%-----------------------------------------------------------------
 %% enter_loop(Mod, Options, State, <ServerName>, <TimeOut>, <Backoff>) ->_
@@ -593,41 +656,44 @@ adjust_timeout_state(SleptAt, AwokeAt, {backoff, CurrentTO, MinimumTO,
     CurrentTO1 = Base + Extra,
     {backoff, CurrentTO1, MinimumTO, DesiredHibPeriod, RandomState1}.
 
-in({'$gen_cast', Msg}, GS2State = #gs2_state { prioritise_cast = PC,
-                                               queue           = Queue }) ->
-    GS2State #gs2_state { queue = priority_queue:in(
-                                    {'$gen_cast', Msg},
-                                    PC(Msg, GS2State), Queue) };
-in({'$gen_call', From, Msg}, GS2State = #gs2_state { prioritise_call = PC,
-                                                     queue           = Queue }) ->
-    GS2State #gs2_state { queue = priority_queue:in(
-                                    {'$gen_call', From, Msg},
-                                    PC(Msg, From, GS2State), Queue) };
-in(Input, GS2State = #gs2_state { prioritise_info = PI, queue = Queue }) ->
-    GS2State #gs2_state { queue = priority_queue:in(
-                                    Input, PI(Input, GS2State), Queue) }.
+in({'$gen_cast', Msg} = Input,
+   GS2State = #gs2_state { prioritisers = {_, F, _} }) ->
+    in(Input, F(Msg, GS2State), GS2State);
+in({'$gen_call', From, Msg} = Input,
+   GS2State = #gs2_state { prioritisers = {F, _, _} }) ->
+    in(Input, F(Msg, From, GS2State), GS2State);
+in({'$with_state', _From, _Fun} = Input, GS2State) ->
+    in(Input, 0, GS2State);
+in({'EXIT', Parent, _R} = Input, GS2State = #gs2_state { parent = Parent }) ->
+    in(Input, infinity, GS2State);
+in({system, _From, _Req} = Input, GS2State) ->
+    in(Input, infinity, GS2State);
+in(Input, GS2State = #gs2_state { prioritisers = {_, _, F} }) ->
+    in(Input, F(Input, GS2State), GS2State).
 
-process_msg(Msg,
-            GS2State = #gs2_state { parent = Parent,
-                                    name   = Name,
-                                    debug  = Debug }) ->
-    case Msg of
-        {system, From, Req} ->
-            sys:handle_system_msg(
-              Req, From, Parent, ?MODULE, Debug,
-              GS2State);
-        %% gen_server puts Hib on the end as the 7th arg, but that
-        %% version of the function seems not to be documented so
-        %% leaving out for now.
-        {'EXIT', Parent, Reason} ->
-            terminate(Reason, Msg, GS2State);
-        _Msg when Debug =:= [] ->
-            handle_msg(Msg, GS2State);
-        _Msg ->
-            Debug1 = sys:handle_debug(Debug, fun print_event/3,
-                                      Name, {in, Msg}),
-            handle_msg(Msg, GS2State #gs2_state { debug = Debug1 })
-    end.
+in(_Input, drop, GS2State) ->
+    GS2State;
+
+in(Input, Priority, GS2State = #gs2_state { queue = Queue }) ->
+    GS2State # gs2_state { queue = priority_queue:in(Input, Priority, Queue) }.
+
+process_msg({system, From, Req},
+            GS2State = #gs2_state { parent = Parent, debug  = Debug }) ->
+    %% gen_server puts Hib on the end as the 7th arg, but that version
+    %% of the fun seems not to be documented so leaving out for now.
+    sys:handle_system_msg(Req, From, Parent, ?MODULE, Debug, GS2State);
+process_msg({'$with_state', From, Fun},
+           GS2State = #gs2_state{state = State}) ->
+    reply(From, catch Fun(State)),
+    loop(GS2State);
+process_msg({'EXIT', Parent, Reason} = Msg,
+            GS2State = #gs2_state { parent = Parent }) ->
+    terminate(Reason, Msg, GS2State);
+process_msg(Msg, GS2State = #gs2_state { debug  = [] }) ->
+    handle_msg(Msg, GS2State);
+process_msg(Msg, GS2State = #gs2_state { name = Name, debug  = Debug }) ->
+    Debug1 = sys:handle_debug(Debug, fun print_event/3, Name, {in, Msg}),
+    handle_msg(Msg, GS2State #gs2_state { debug = Debug1 }).
 
 %%% ---------------------------------------------------
 %%% Send/recive functions
@@ -826,13 +892,19 @@ dispatch(Info, Mod, State) ->
 common_reply(_Name, From, Reply, _NState, [] = _Debug) ->
     reply(From, Reply),
     [];
-common_reply(Name, From, Reply, NState, Debug) ->
-    reply(Name, From, Reply, NState, Debug).
+common_reply(Name, {To, _Tag} = From, Reply, NState, Debug) ->
+    reply(From, Reply),
+    sys:handle_debug(Debug, fun print_event/3, Name, {out, Reply, To, NState}).
 
-common_debug([] = _Debug, _Func, _Info, _Event) ->
+common_noreply(_Name, _NState, [] = _Debug) ->
     [];
-common_debug(Debug, Func, Info, Event) ->
-    sys:handle_debug(Debug, Func, Info, Event).
+common_noreply(Name, NState, Debug) ->
+    sys:handle_debug(Debug, fun print_event/3, Name, {noreply, NState}).
+
+common_become(_Name, _Mod, _NState, [] = _Debug) ->
+    [];
+common_become(Name, Mod, NState, Debug) ->
+    sys:handle_debug(Debug, fun print_event/3, Name, {become, Mod, NState}).
 
 handle_msg({'$gen_call', From, Msg}, GS2State = #gs2_state { mod = Mod,
                                                              state = State,
@@ -849,23 +921,11 @@ handle_msg({'$gen_call', From, Msg}, GS2State = #gs2_state { mod = Mod,
             loop(GS2State #gs2_state { state = NState,
                                        time  = Time1,
                                        debug = Debug1});
-        {noreply, NState} ->
-            Debug1 = common_debug(Debug, fun print_event/3, Name,
-                                  {noreply, NState}),
-            loop(GS2State #gs2_state {state = NState,
-                                      time  = infinity,
-                                      debug = Debug1});
-        {noreply, NState, Time1} ->
-            Debug1 = common_debug(Debug, fun print_event/3, Name,
-                                  {noreply, NState}),
-            loop(GS2State #gs2_state {state = NState,
-                                      time  = Time1,
-                                      debug = Debug1});
         {stop, Reason, Reply, NState} ->
             {'EXIT', R} =
                 (catch terminate(Reason, Msg,
                                  GS2State #gs2_state { state = NState })),
-            reply(Name, From, Reply, NState, Debug),
+            common_reply(Name, From, Reply, NState, Debug),
             exit(R);
         Other ->
             handle_common_reply(Other, Msg, GS2State)
@@ -878,28 +938,24 @@ handle_common_reply(Reply, Msg, GS2State = #gs2_state { name  = Name,
                                                         debug = Debug}) ->
     case Reply of
         {noreply, NState} ->
-            Debug1 = common_debug(Debug, fun print_event/3, Name,
-                                  {noreply, NState}),
-            loop(GS2State #gs2_state { state = NState,
-                                       time  = infinity,
-                                       debug = Debug1 });
+            Debug1 = common_noreply(Name, NState, Debug),
+            loop(GS2State #gs2_state {state = NState,
+                                      time  = infinity,
+                                      debug = Debug1});
         {noreply, NState, Time1} ->
-            Debug1 = common_debug(Debug, fun print_event/3, Name,
-                                  {noreply, NState}),
-            loop(GS2State #gs2_state { state = NState,
-                                       time  = Time1,
-                                       debug = Debug1 });
+            Debug1 = common_noreply(Name, NState, Debug),
+            loop(GS2State #gs2_state {state = NState,
+                                      time  = Time1,
+                                      debug = Debug1});
         {become, Mod, NState} ->
-            Debug1 = common_debug(Debug, fun print_event/3, Name,
-                                  {become, Mod, NState}),
+            Debug1 = common_become(Name, Mod, NState, Debug),
             loop(find_prioritisers(
                    GS2State #gs2_state { mod   = Mod,
                                          state = NState,
                                          time  = infinity,
                                          debug = Debug1 }));
         {become, Mod, NState, Time1} ->
-            Debug1 = common_debug(Debug, fun print_event/3, Name,
-                                  {become, Mod, NState}),
+            Debug1 = common_become(Name, Mod, NState, Debug),
             loop(find_prioritisers(
                    GS2State #gs2_state { mod   = Mod,
                                          state = NState,
@@ -918,12 +974,6 @@ handle_common_termination(Reply, Msg, GS2State) ->
         _ ->
             terminate({bad_return_value, Reply}, Msg, GS2State)
     end.
-
-reply(Name, {To, Tag}, Reply, State, Debug) ->
-    reply({To, Tag}, Reply),
-    sys:handle_debug(
-      Debug, fun print_event/3, Name, {out, Reply, To, State}).
-
 
 %%-----------------------------------------------------------------
 %% Callback functions for system messages handling.
@@ -1080,7 +1130,7 @@ get_proc_name({local, Name}) ->
             exit(process_not_registered)
     end;
 get_proc_name({global, Name}) ->
-    case global:safe_whereis_name(Name) of
+    case whereis_name(Name) of
         undefined ->
             exit(process_not_registered_globally);
         Pid when Pid =:= self() ->
@@ -1102,7 +1152,7 @@ get_parent() ->
 name_to_pid(Name) ->
     case whereis(Name) of
         undefined ->
-            case global:safe_whereis_name(Name) of
+            case whereis_name(Name) of
                 undefined ->
                     exit(could_not_find_registerd_name);
                 Pid ->
@@ -1112,31 +1162,48 @@ name_to_pid(Name) ->
             Pid
     end.
 
+whereis_name(Name) ->
+    case ets:lookup(global_names, Name) of
+    [{_Name, Pid, _Method, _RPid, _Ref}] ->
+        if node(Pid) == node() ->
+            case is_process_alive(Pid) of
+            true  -> Pid;
+            false -> undefined
+            end;
+           true ->
+            Pid
+        end;
+    [] -> undefined
+    end.
+
 find_prioritisers(GS2State = #gs2_state { mod = Mod }) ->
-    PrioriCall = function_exported_or_default(
-                   Mod, 'prioritise_call', 3,
-                   fun (_Msg, _From, _State) -> 0 end),
-    PrioriCast = function_exported_or_default(Mod, 'prioritise_cast', 2,
-                                              fun (_Msg, _State) -> 0 end),
-    PrioriInfo = function_exported_or_default(Mod, 'prioritise_info', 2,
-                                              fun (_Msg, _State) -> 0 end),
-    GS2State #gs2_state { prioritise_call = PrioriCall,
-                          prioritise_cast = PrioriCast,
-                          prioritise_info = PrioriInfo }.
+    PCall = function_exported_or_default(Mod, 'prioritise_call', 4,
+                                         fun (_Msg, _From, _State) -> 0 end),
+    PCast = function_exported_or_default(Mod, 'prioritise_cast', 3,
+                                         fun (_Msg, _State) -> 0 end),
+    PInfo = function_exported_or_default(Mod, 'prioritise_info', 3,
+                                         fun (_Msg, _State) -> 0 end),
+    GS2State #gs2_state { prioritisers = {PCall, PCast, PInfo} }.
 
 function_exported_or_default(Mod, Fun, Arity, Default) ->
     case erlang:function_exported(Mod, Fun, Arity) of
         true -> case Arity of
-                    2 -> fun (Msg, GS2State = #gs2_state { state = State }) ->
-                                 case catch Mod:Fun(Msg, State) of
+                    3 -> fun (Msg, GS2State = #gs2_state { queue = Queue,
+                                                           state = State }) ->
+                                 Length = priority_queue:len(Queue),
+                                 case catch Mod:Fun(Msg, Length, State) of
+                                     drop ->
+                                         drop;
                                      Res when is_integer(Res) ->
                                          Res;
                                      Err ->
                                          handle_common_termination(Err, Msg, GS2State)
                                  end
                          end;
-                    3 -> fun (Msg, From, GS2State = #gs2_state { state = State }) ->
-                                 case catch Mod:Fun(Msg, From, State) of
+                    4 -> fun (Msg, From, GS2State = #gs2_state { queue = Queue,
+                                                                 state = State }) ->
+                                 Length = priority_queue:len(Queue),
+                                 case catch Mod:Fun(Msg, From, Length, State) of
                                      Res when is_integer(Res) ->
                                          Res;
                                      Err ->
@@ -1161,17 +1228,22 @@ format_status(Opt, StatusData) ->
               end,
     Header = lists:concat(["Status for generic server ", NameTag]),
     Log = sys:get_debug(log, Debug, []),
-    Specfic =
-        case erlang:function_exported(Mod, format_status, 2) of
-            true -> case catch Mod:format_status(Opt, [PDict, State]) of
-                        {'EXIT', _} -> [{data, [{"State", State}]}];
-                        Else        -> Else
-                    end;
-            _    -> [{data, [{"State", State}]}]
-        end,
+    Specfic = callback(Mod, format_status, [Opt, [PDict, State]],
+                       fun () -> [{data, [{"State", State}]}] end),
+    Messages = callback(Mod, format_message_queue, [Opt, Queue],
+                        fun () -> priority_queue:to_list(Queue) end),
     [{header, Header},
      {data, [{"Status", SysState},
              {"Parent", Parent},
              {"Logged events", Log},
-             {"Queued messages", priority_queue:to_list(Queue)}]} |
+             {"Queued messages", Messages}]} |
      Specfic].
+
+callback(Mod, FunName, Args, DefaultThunk) ->
+    case erlang:function_exported(Mod, FunName, length(Args)) of
+        true  -> case catch apply(Mod, FunName, Args) of
+                     {'EXIT', _} -> DefaultThunk();
+                     Success     -> Success
+                 end;
+        false -> DefaultThunk()
+    end.
