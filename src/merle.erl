@@ -55,6 +55,7 @@
     host,
     port,
     request_timeout,
+    max = 0,
     tcp_options = ?TCP_OPTS
 }).
 
@@ -363,9 +364,12 @@ start_link(Host, Port, RequestTimeout) ->
 start_link(Host, Port, RequestTimeout, Options) ->
     PoolSize = proplists:get_value(connections_pool_size,
                                    Options, ?DEFAULT_POOL_SIZE),
+    MaxConnections = proplists:get_value(max_connections,
+                                         Options, 0),
     State = #state {
       host = Host,
       port = Port,
+      max  = MaxConnections,
       request_timeout = RequestTimeout
      },
     gen_server2:start_link({local, ?SERVER}, ?MODULE, [State, PoolSize], []).
@@ -616,11 +620,20 @@ process_freed(Pid, State) ->
 get_socket(FromPid, State) ->
     Free = State#state.free_connections,
     Busy = State#state.busy_connections,
+    NumConnections = queue_count(Free) + length(Busy),
+    MaxConnections = case State#state.max of
+                         0 -> NumConnections + 1;
+                         V -> V
+                     end,
     {Result, NewFree} = case queue:is_empty(Free) of
         false ->
             {{ok, queue:get(Free)}, queue:drop(Free)};
         true ->
-            {spawn_client(State), Free}
+            if NumConnections < MaxConnections ->
+                    {spawn_client(State), Free};
+               true ->
+                    {error, max_connections}
+            end
     end,
     case Result of
         {ok, Pid} ->
@@ -631,6 +644,13 @@ get_socket(FromPid, State) ->
             {NewState, Pid};
         {error, Reason} ->
             {State, {error, Reason}}
+    end.
+
+%% @private
+queue_count(Q) ->
+    case queue:is_empty(Q) of
+        true -> 0;
+        false -> queue:len(Q)
     end.
 
 %% @private
