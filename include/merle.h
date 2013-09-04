@@ -1,13 +1,3 @@
--record(state, {
-    free_connections = queue:new(),
-    busy_connections = [],
-    host,
-    port,
-    request_timeout,
-    max = 0,
-    name = ?MODULE,
-    tcp_options = ?TCP_OPTS
-}).
 
 -define(SERVER, merle_connect).
 -define(TIMEOUT, 1000).
@@ -18,3 +8,15 @@
 -define(TCP_OPTS, [
     binary, {packet, raw}, {nodelay, true},{reuseaddr, true}, {active, true}
 ]).
+
+
+-record(state, {
+    free_connections = queue:new(),
+    busy_connections = [],
+    host,
+    port,
+    request_timeout,
+    max = 0,
+    name = ?SERVER,
+    tcp_options = ?TCP_OPTS
+}).

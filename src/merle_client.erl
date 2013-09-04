@@ -44,13 +44,24 @@
     stats/1, stats/2, version/1, getkey/2, delete/3, set/5, add/5, replace/3,
     replace/5, cas/6, set/3, flushall/1, flushall/2, verbosity/2, add/3,
     cas/4, getskey/2, connect/1, connect/3, connect/4, connect/5, delete/2,
-    disconnect/1, get_state/1, get_state/2
+    disconnect/1, get_state/0, get_state/1
+]).
+
+
+% API -- non-term apis
+-export([
+       s_getkey/2,
+       s_getskey/2,
+       s_set/3, s_set/4,
+       s_add/3, s_add/4,
+       s_replace/3, s_replace/4,
+       s_cas/4, s_cas/5
 ]).
 
 %% @doc retrieve memcached stats
 -spec stats(atom()) -> term().
 stats(Name) ->
-    gen_server2:call(?SERVER, {stats}).
+    gen_server2:call(Name, {stats}).
 
 %% @doc retrieve memcached stats based on args
 -spec stats(atom(), atom()) -> term().
@@ -110,7 +121,7 @@ s_getkey(Name, Key) ->
 %% @doc retrieve value based off of key for use with cas
 getskey(Name, Key) when is_atom(Key) ->
     getskey(Name, atom_to_list(Key));
-getskey(Key) ->
+getskey(Name, Key) ->
     case gen_server2:call(Name, {getskey,{Key},true}) of
         ["END"] -> undefined;
         [X] -> X
@@ -167,7 +178,9 @@ delete(Name, Key, Time) ->
 set(Name, Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     set(Name, Key, integer_to_list(Flag), "0", Value).
-
+set(Name, Key, ExpTime, Value) ->
+    Flag = random:uniform(?RANDOM_MAX),
+    set(Name, Key, integer_to_list(Flag), ExpTime, Value).
 set(Name, Key, Flag, ExpTime, Value) when is_atom(Key) ->
     set(atom_to_list(Key), Flag, ExpTime, Value);
 set(Name, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
@@ -319,3 +332,10 @@ connect(Name, Host, Port, RequestTimeout, Opts) ->
 %% @doc disconnect from memcached
 disconnect(Name) ->
     gen_server2:cast(Name, stop).
+
+
+get_state() ->
+    gen_server2:call(?SERVER, get_state).
+
+get_state(Name) ->
+    gen_server2:call(Name, get_state).
