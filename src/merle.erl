@@ -33,15 +33,14 @@
 %% Updates at http://github.com/joewilliams/merle/
 
 -module(merle).
--behaviour(gen_server2).
 
 -author("Joe Williams <joe@joetify.com>").
 
--include("merle.h");
+-include("merle.h").
 
 %% API
 -export([
-    stats/0, stats/1, version/0, getkey/1, delete/2, set/4, add/4, replace/2,
+    stats/0, stats/1, version/0, getkey/1, delete/2, set/3, set/4, add/4, replace/2,
     replace/4, cas/5, set/2, flushall/0, flushall/1, verbosity/1, add/2,
     cas/3, getskey/1, connect/0, connect/2, connect/3, connect/4, delete/1, disconnect/0
 ]).
@@ -50,10 +49,10 @@
 -export([
        s_getkey/1,
        s_getskey/1,
-       s_set/2, s_set/3,
-       s_add/2, s_add/3,
-       s_replace/2, s_replace/3,
-       s_cas/3, s_cas/4
+       s_set/2, s_set/3, s_set/4,
+       s_add/2, s_add/3, s_add/4,
+       s_replace/2, s_replace/3, s_replace/4,
+       s_cas/3, s_cas/4, s_cas/5
 ]).
 
 
@@ -150,8 +149,6 @@ s_set(Key, Flag, ExpTime, Value) ->
 %% @doc Store a key/value pair if it doesn't already exist.
 add(Key, Value) ->
     merle_client:add(?SERVER, Key, Value).
-add(Key, ExpTime, Value) ->
-    merle_client:add(?SERVER, Key, ExpTime, Value).
 add(Key, Flag, ExpTime, Value) ->
     merle_client:add(?SERVER, Key, Flag, ExpTime, Value).
 
@@ -190,7 +187,9 @@ cas(Key, Flag, ExpTime, CasUniq, Value) ->
 %% @doc cas that plays nice with Python
 %%   doesn't assume values are terms
 s_cas(Key, CasUniq, Value) ->
-    s_cas(Key, "0", "0", CasUniq, Value).
+    merle_client:s_case(?SERVER, Key, CasUniq, Value).
+s_cas(Key, ExpTime, CasUniq, Value) ->
+    merle_client:s_case(?SERVER, Key, ExpTime, CasUniq, Value).
 s_cas(Key, Flag, ExpTime, CasUniq, Value) ->
     merle_client:s_case(?SERVER, Key, Flag, ExpTime, CasUniq, Value).
 

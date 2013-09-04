@@ -42,7 +42,7 @@
 %% client API
 -export([
     stats/1, stats/2, version/1, getkey/2, delete/3, set/5, add/5, replace/3,
-    replace/5, cas/6, set/3, flushall/1, flushall/2, verbosity/2, add/3,
+    replace/5, cas/6, set/3, set/4, flushall/1, flushall/2, verbosity/2, add/3,
     cas/4, getskey/2, connect/1, connect/3, connect/4, connect/5, delete/2,
     disconnect/1, get_state/0, get_state/1
 ]).
@@ -182,11 +182,11 @@ set(Name, Key, ExpTime, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     set(Name, Key, integer_to_list(Flag), ExpTime, Value).
 set(Name, Key, Flag, ExpTime, Value) when is_atom(Key) ->
-    set(atom_to_list(Key), Flag, ExpTime, Value);
+    set(Name, atom_to_list(Key), Flag, ExpTime, Value);
 set(Name, Key, Flag, ExpTime, Value) when is_integer(Flag) ->
-    set(Key, integer_to_list(Flag), ExpTime, Value);
+    set(Name, Key, integer_to_list(Flag), ExpTime, Value);
 set(Name, Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
-    set(Key, Flag, integer_to_list(ExpTime), Value);
+    set(Name, Key, Flag, integer_to_list(ExpTime), Value);
 set(Name, Key, Flag, ExpTime, Value) ->
     gen_server2:cast(Name, {set, {Key, Flag, ExpTime, Value, self()}}).
 
