@@ -403,8 +403,11 @@ recv_complex_get_reply(State, Socket) ->
             Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
             {ok,[_,_,_,Bytes], ListBin} = Parse,
             Bin = list_to_binary(ListBin),
-            Reply = get_data(State, Socket, Bin, Bytes, length(ListBin)),
-            [Reply];
+            case get_data(State, Socket, Bin, Bytes, length(ListBin)) of
+                timeout ->           timeout;
+                connection_closed -> connection_closed;
+                Reply ->             [Reply]
+            end;
         {error, closed} ->
             connection_closed
     after Timeout -> timeout
@@ -423,8 +426,11 @@ recv_complex_gets_reply(State, Socket) ->
             Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
             {ok,[_,_,_,Bytes,CasUniq], ListBin} = Parse,
             Bin = list_to_binary(ListBin),
-            Reply = get_data(State, Socket, Bin, Bytes, length(ListBin)),
-            [CasUniq, Reply];
+            case get_data(State, Socket, Bin, Bytes, length(ListBin)) of
+                timeout -> timeout;
+                connection_closed -> connection_closed;
+                Reply -> [CasUniq, Reply]
+            end;
         {error, closed} ->
             connection_closed
     after Timeout -> timeout
