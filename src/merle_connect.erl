@@ -248,19 +248,22 @@ do_set(Key, Flag, ExpTime, Value, IsTerm, From, State) ->
 %% @private
 %% @doc Closes the socket
 terminate(_Reason, #state{free_connections=Free, busy_connections=Busy}) ->
-    lists:foreach(
-        fun (Pid) ->
-                gen_tcp:close(Pid)
-        end,
-        queue:to_list(Free)),
-    %% Need a better way to wait for connections to finish
-    timer:sleep(1000),
-    lists:foreach(
-      fun ({_, Pid}) ->
-              gen_tcp:close(Pid)
-      end,
-      Busy),
-    ok.
+    try
+        lists:foreach(
+          fun (Pid) ->
+                  gen_tcp:close(Pid)
+          end,
+          queue:to_list(Free)),
+        %% Need a better way to wait for connections to finish
+        timer:sleep(1000),
+        lists:foreach(
+          fun ({_, Pid}) ->
+                  gen_tcp:close(Pid)
+          end,
+          Busy),
+        ok
+    catch _:_ ok
+    end.
 
 spawn_client(#state{host=Host, port=Port, tcp_options=TCPOpts}) ->
     gen_tcp:connect(Host, Port, TCPOpts).
@@ -293,7 +296,7 @@ process_close(Pid, State) ->
                                                       P =/= Pid
                                                  end, Free)
                 },
-    gen_tcp:close(Pid),
+    catch gen_tcp:close(Pid),
     NewState.
 
 %% @private
@@ -324,7 +327,7 @@ get_socket(FromPid, State) ->
             if NumConnections < MaxConnections ->
                     {spawn_client(State), Free};
                true ->
-                    {error, max_connections}
+                    {{error, max_connections}, Free}
             end
     end,
     case Result of
