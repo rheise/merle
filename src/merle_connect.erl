@@ -348,22 +348,22 @@ queue_count(Q) ->
 %% @private
 %% @doc send_generic_cmd/2 function for simple informational and deletion commands
 send_generic_cmd(State, Socket, Cmd) ->
-    gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
+    ok = gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
     Reply = recv_simple_reply(State),
     Reply.
 
 %% @private
 %% @doc send_storage_cmd/3 funtion for storage commands
 send_storage_cmd(State, Socket, Cmd, Value) ->
-    gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
-    gen_tcp:send(Socket, <<Value/binary, "\r\n">>),
+    ok = gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
+    ok = gen_tcp:send(Socket, <<Value/binary, "\r\n">>),
     Reply = recv_simple_reply(State),
     Reply.
 
 %% @private
 %% @doc send_get_cmd/2 function for retreival commands
 send_get_cmd(State, Socket, Cmd, IsTerm) ->
-    gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
+    ok = gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
     case recv_complex_get_reply(State, Socket) of
         [Reply] -> [decode(IsTerm, Reply)];
         Other -> Other
@@ -372,7 +372,7 @@ send_get_cmd(State, Socket, Cmd, IsTerm) ->
 %% @private
 %% @doc send_gets_cmd/2 function for cas retreival commands
 send_gets_cmd(State, Socket, Cmd, IsTerm) ->
-    gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
+    ok = gen_tcp:send(Socket, <<Cmd/binary, "\r\n">>),
     case recv_complex_gets_reply(State, Socket) of
         [CasUniq, Reply] -> [CasUniq, decode(IsTerm, Reply)];
         Other -> Other
