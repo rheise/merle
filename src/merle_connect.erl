@@ -262,7 +262,7 @@ terminate(_Reason, #state{free_connections=Free, busy_connections=Busy}) ->
           end,
           Busy),
         ok
-    catch _:_ ok
+    catch _:_ -> ok
     end.
 
 spawn_client(#state{host=Host, port=Port, tcp_options=TCPOpts}) ->
