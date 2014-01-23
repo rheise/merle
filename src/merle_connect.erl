@@ -266,7 +266,12 @@ terminate(_Reason, #state{free_connections=Free, busy_connections=Busy}) ->
     end.
 
 spawn_client(#state{host=Host, port=Port, tcp_options=TCPOpts}) ->
-    gen_tcp:connect(Host, Port, TCPOpts).
+    case gen_tcp:connect(Host, Port, TCPOpts) of
+        {error, Reason} ->
+            error_log:error_msg("CONNECTION Failed ~p~n", [{Host, Port, TCPOpts, Reason}]),
+            {error, Reason};
+        Res -> Res
+    end.
 
 
 %% @private
