@@ -272,19 +272,23 @@ spawn_client(#state{host=Host, port=Port, tcp_options=TCPOpts}) ->
 %% @private
 exec(Fun, FromPid, State) ->
     Name = State#state.name,
-    {CurrentState, Socket} = get_socket(FromPid, State),
-    Reply = try Fun(Socket)
-            catch C:E ->
-                    %% An error should close the connection
-                    gen_server2:cast(Name, {close, Socket, error}),
-                    erlang:raise(C, E, erlang:get_stacktrace())
+    case get_socket(FromPid, State) of
+        {_ErrorState, {error, Reason}} ->
+            erlang:error(Reason);
+        {CurrentState, Socket} ->
+            Reply = try Fun(Socket)
+                    catch C:E ->
+                            %% An error should close the connection
+                            gen_server2:cast(Name, {close, Socket, error}),
+                            erlang:raise(C, E, erlang:get_stacktrace())
+                    end,
+            case Reply of
+                timeout -> gen_server2:cast(Name, {close, Socket, timeout});
+                connection_closed -> gen_server2:cast(Name, {close, Socket, connection_closed});
+                _ -> gen_server2:cast(Name, {free, Socket})
             end,
-    case Reply of
-        timeout -> gen_server2:cast(Name, {close, Socket, timeout});
-        connection_closed -> gen_server2:cast(Name, {close, Socket, connection_closed});
-        _ -> gen_server2:cast(Name, {free, Socket})
-    end,
-    {CurrentState, Reply}.
+            {CurrentState, Reply}
+    end.
 
 %% @private
 process_close(Pid, State) ->
